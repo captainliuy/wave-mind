@@ -6,19 +6,23 @@ wave.py — RTL 波形 VCD 提取工具（面向大模型分析）
 
 子命令：
   list      列出 VCD 中所有信号
+  peek      查询某一时刻的信号值（单时刻快照）
   dump      输出波形表格（时间 × 信号值）
   trace     列出信号跳变事件（仅列出有变化的时刻）
   find      按条件搜索满足条件的时间戳
+  explain   解释信号翻转的上下文（相关信号变化）
   summary   信号统计报告（含异常检测）
   context   生成完整 LLM 分析上下文（推荐入口）
 
 快速上手：
-  python wave.py list   sim.vcd
-  python wave.py dump   sim.vcd --signals clk,rst_n,valid,data --start 0 --end 1000
-  python wave.py trace  sim.vcd --signals valid,ready
-  python wave.py find   sim.vcd --when "valid==1 and ready==1"
-  python wave.py summary sim.vcd --signals "*"
-  python wave.py context sim.vcd --signals valid,data,ack --start 500 --end 2000
+  python wave.py list     sim.vcd
+  python wave.py peek     sim.vcd --time 1250 --signals clk,rst_n,valid,data
+  python wave.py dump     sim.vcd --signals clk,rst_n,valid,data --start 0 --end 1000
+  python wave.py trace    sim.vcd --signals valid,ready
+  python wave.py find     sim.vcd --when "valid==1 and ready==1"
+  python wave.py explain  sim.vcd --signal ack --at 1310 --context 100
+  python wave.py summary  sim.vcd --signals "*"
+  python wave.py context  sim.vcd --signals valid,data,ack --start 500 --end 2000
 """
 
 import re
@@ -199,6 +203,20 @@ class VCDParser:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# JSON 输出支持
+# ══════════════════════════════════════════════════════════════════════════════
+
+import json
+
+def output_json(data: dict, use_json: bool):
+    """根据 --format 参数选择输出格式。"""
+    if use_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 格式化工具
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -240,6 +258,19 @@ def cmd_list(vcd: VCDParser, args):
         sigs.sort(key=lambda s: s.full_name)
 
     unit = _timescale_unit(vcd.timescale)
+
+    if output_json({
+        "file": vcd.path,
+        "timescale": vcd.timescale,
+        "end_time": vcd.end_time,
+        "signals": [
+            {"name": s.full_name, "width": s.width, "type": s.var_type, "toggles": s.toggle_count()}
+            for s in sigs
+        ],
+        "total": len(sigs)
+    }, args.format == "json"):
+        return
+
     print(f"VCD: {vcd.path}  |  timescale: {vcd.timescale}  |  "
           f"end_time: {vcd.end_time}{unit}\n")
     print(f"{'#':<5} {'Full Name':<50} {'W':>4}  {'Type':<8}  Toggles")
@@ -247,6 +278,36 @@ def cmd_list(vcd: VCDParser, args):
     for i, s in enumerate(sigs, 1):
         print(f"{i:<5} {s.full_name:<50} {s.width:>4}b  {s.var_type:<8}  {s.toggle_count()}")
     print(f"\n共 {len(sigs)} 个信号（VCD 合计 {len(vcd.signals)} 个）")
+
+
+def cmd_peek(vcd: VCDParser, args):
+    """
+    查询某一时刻的信号值（单时刻快照）。
+    适合快速定位问题时刻的信号状态。
+    """
+    sigs = vcd.select(args.signals)
+    if not sigs: _no_match(); return
+
+    time = args.time
+    unit = _timescale_unit(vcd.timescale)
+
+    signal_values = {}
+    for s in sigs:
+        v = s.value_at(time)
+        signal_values[s.full_name] = _fmt_val(v, s.width) if v else "?"
+
+    if output_json({
+        "time": time,
+        "unit": unit,
+        "signals": signal_values
+    }, args.format == "json"):
+        return
+
+    print(f"时刻 t = {time} {unit}\n")
+    print(f"{'Signal':<40}  {'Value':>10}")
+    print("─" * 52)
+    for name, val in signal_values.items():
+        print(f"{name:<40}  {val:>10}")
 
 
 def cmd_dump(vcd: VCDParser, args):
@@ -407,6 +468,89 @@ def cmd_find(vcd: VCDParser, args):
         print(f"  ... 共 {len(groups)} 段，使用 --limit 显示更多")
 
 
+def cmd_explain(vcd: VCDParser, args):
+    """
+    解释信号翻转的上下文。
+    查找目标信号翻转时刻前后 --context 时间窗口内所有相关信号的变化，
+    帮助定位翻转原因。
+    """
+    # 查找目标信号
+    target_sigs = vcd.select(args.signal)
+    if not target_sigs:
+        print(f"未找到信号 [{args.signal}]")
+        return
+    target = target_sigs[0]
+
+    # 查找翻转时刻
+    time = args.at
+    transitions = target.transitions_in(time, time)
+    if not transitions:
+        # 尝试在附近查找
+        nearby = target.transitions_in(time - 5, time + 5)
+        if nearby:
+            time = nearby[0][0]
+            transitions = nearby
+            print(f"(信号在 t={args.at} 无翻转，使用最近的翻转时刻 t={time})")
+        else:
+            print(f"信号 [{args.signal}] 在 t={time} 附近无翻转事件")
+            return
+
+    # 确定上下文窗口
+    ctx_window = args.context
+    start = max(0, time - ctx_window)
+    end = min(vcd.end_time, time + ctx_window)
+    unit = _timescale_unit(vcd.timescale)
+
+    # 收集所有信号在该窗口内的变化
+    all_sigs = vcd.select("*")
+    related_changes = []
+    for s in all_sigs:
+        for t, pv, cv in s.transitions_in(start, end):
+            if t != time or s.full_name != target.full_name:  # 排除目标信号本身
+                related_changes.append({
+                    "time": t,
+                    "signal": s.full_name,
+                    "prev": _fmt_val(pv, s.width) if pv else "?",
+                    "curr": _fmt_val(cv, s.width)
+                })
+
+    # 按时间排序
+    related_changes.sort(key=lambda x: x["time"])
+
+    # 分析可能原因
+    likely_causes = []
+    for ch in related_changes:
+        if ch["time"] < time:
+            likely_causes.append(f"{ch['signal']} 变为 {ch['curr']} (t={ch['time']})")
+
+    event_desc = f"{target.full_name} 在 t={time} 由 {_fmt_val(transitions[0][1], target.width)} 变为 {_fmt_val(transitions[0][2], target.width)}"
+
+    if output_json({
+        "event": event_desc,
+        "window": [start, end],
+        "unit": unit,
+        "likely_causes": likely_causes[:5],
+        "related_changes": related_changes
+    }, args.format == "json"):
+        return
+
+    print(f"事件: {event_desc}")
+    print(f"上下文窗口: {start} ~ {end} {unit}\n")
+
+    if likely_causes:
+        print("可能原因（翻转前相关信号变化）：")
+        for cause in likely_causes[:5]:
+            print(f"  • {cause}")
+
+    print(f"\n相关信号变化（按时间排序）：")
+    print(f"{'Time':>10}  {'Signal':<40}  {'Prev':>8}  →  {'Curr':>8}")
+    print("─" * 70)
+    for ch in related_changes[:30]:
+        print(f"{ch['time']:>10}  {ch['signal']:<40}  {ch['prev']:>8}  →  {ch['curr']:>8}")
+    if len(related_changes) > 30:
+        print(f"... 共 {len(related_changes)} 个变化事件")
+
+
 def cmd_summary(vcd: VCDParser, args):
     """
     输出信号统计摘要 + 异常检测报告。
@@ -549,6 +693,11 @@ def _add_signal_arg(p: argparse.ArgumentParser, default="*"):
                    help="信号选择模式：名称/通配符/正则（逗号分隔，默认 *）")
 
 
+def _add_format_arg(p: argparse.ArgumentParser):
+    p.add_argument("--format", "-F", choices=["text", "json"], default="text",
+                   help="输出格式（text / json，默认 text）")
+
+
 def build_parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="wave",
@@ -564,6 +713,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="按名称过滤（支持通配符）")
     p_list.add_argument("--sort", choices=["name", "toggle"], default="name",
                         help="排序方式（name / toggle，默认 name）")
+    _add_format_arg(p_list)
+
+    # peek
+    p_peek = sub.add_parser("peek", help="查询某一时刻的信号值（单时刻快照）")
+    p_peek.add_argument("vcd", help="VCD 文件路径")
+    p_peek.add_argument("--time", "-t", type=int, required=True, metavar="T",
+                        help="查询时刻（VCD 时间单位）")
+    _add_signal_arg(p_peek)
+    _add_format_arg(p_peek)
 
     # dump
     p_dump = sub.add_parser("dump", help="输出波形表格（时间 × 信号值）")
@@ -587,6 +745,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_time_args(p_find)
     p_find.add_argument("--limit", type=int, default=20,
                         help="最多显示结果段数（默认 20）")
+
+    # explain
+    p_exp = sub.add_parser("explain", help="解释信号翻转的上下文（相关信号变化）")
+    p_exp.add_argument("vcd", help="VCD 文件路径")
+    p_exp.add_argument("--signal", "-s", required=True, metavar="SIG",
+                       help="目标信号名")
+    p_exp.add_argument("--at", "-t", type=int, required=True, metavar="T",
+                       help="翻转时刻（VCD 时间单位）")
+    p_exp.add_argument("--context", "-c", type=int, default=100, metavar="N",
+                       help="上下文窗口大小（前后 N 时间单位，默认 100）")
+    _add_format_arg(p_exp)
 
     # summary
     p_sum = sub.add_parser("summary", help="信号统计 + 异常检测报告")
@@ -625,9 +794,11 @@ def main():
 
     dispatch = {
         "list":    cmd_list,
+        "peek":    cmd_peek,
         "dump":    cmd_dump,
         "trace":   cmd_trace,
         "find":    cmd_find,
+        "explain": cmd_explain,
         "summary": cmd_summary,
         "context": cmd_context,
     }

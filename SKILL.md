@@ -24,9 +24,11 @@ compatibility:
 | 你的目标 | 推荐子命令 | 说明 |
 |---------|-----------|------|
 | 不知道有哪些信号 | `list` | 先浏览，再决定分析哪些 |
+| 查询某一时刻的信号值 | `peek` | 单时刻快照，快速定位问题时刻 |
 | 需要看完整波形表格 | `dump` | 时间×信号矩阵，适合看趋势 |
 | 只关心变化时刻 | `trace` | 更紧凑，适合分析协议行为 |
 | 搜索特定条件/边沿 | `find` | 找握手失败、X传播起点等 |
+| 解释信号翻转原因 | `explain` | 查看翻转时刻前后的相关变化 |
 | 检测异常（STUCK/GLITCH/X） | `summary` | 一键扫描问题信号 |
 | **传给大模型分析** | `context` | **首选入口**，组合以上所有信息 |
 
@@ -34,7 +36,12 @@ compatibility:
 
 ## 核心工具
 
-**`scripts/wave.py`** — 唯一入口 CLI，纯 Python 标准库，无需安装依赖。
+**`scripts/wave.py`** — 唯一入口 CLI，**纯 Python 标准库实现，无需安装任何依赖**。
+
+依赖说明：
+- Python ≥ 3.8
+- 仅使用标准库模块：`re`, `sys`, `fnmatch`, `argparse`, `textwrap`, `pathlib`, `dataclasses`, `typing`, `json`
+- 无需 `pip install` 任何第三方包
 
 ```
 用法：python wave.py <子命令> <vcd文件> [选项]
@@ -56,6 +63,52 @@ python wave.py list sim.vcd --sort toggle
 # 过滤名称（通配符）
 python wave.py list sim.vcd --filter "axi*"
 python wave.py list sim.vcd --filter "/valid|ready/"   # 正则
+
+# JSON 输出（适合 Agent 解析）
+python wave.py list sim.vcd --format json
+```
+
+---
+
+### `peek` — 单时刻快照
+
+查询某一时刻所有信号的值，适合快速定位问题时刻。
+
+```bash
+# 查询 t=1250 时刻的信号值
+python wave.py peek sim.vcd --time 1250 --signals clk,rst_n,valid,data
+
+# 查询某一时刻所有信号
+python wave.py peek sim.vcd --time 500 --signals "*"
+
+# JSON 输出
+python wave.py peek sim.vcd --time 1250 --signals valid,data --format json
+```
+
+**输出示例：**
+```
+时刻 t = 1250 ns
+
+Signal                                      Value
+────────────────────────────────────────────────────
+tb.dut.clk                                     1
+tb.dut.rst_n                                   1
+tb.dut.valid                                   0
+tb.dut.data                                  A3B2h
+```
+
+**JSON 输出示例：**
+```json
+{
+  "time": 1250,
+  "unit": "ns",
+  "signals": {
+    "tb.dut.clk": "1",
+    "tb.dut.rst_n": "1",
+    "tb.dut.valid": "0",
+    "tb.dut.data": "A3B2h"
+  }
+}
 ```
 
 ---
@@ -150,6 +203,42 @@ python wave.py find sim.vcd --when "state != 0" --limit 50
   t = 60
   t = 120 ~ 130  (持续 10)
   t = 250
+```
+
+---
+
+### `explain` — 解释信号翻转原因
+
+分析信号翻转时刻前后相关信号的变化，帮助定位翻转根因。
+
+```bash
+# 解释 ack 在 t=1310 翻转的原因
+python wave.py explain sim.vcd --signal ack --at 1310 --context 100
+
+# 指定更大的上下文窗口
+python wave.py explain sim.vcd --signal valid --at 500 --context 200
+
+# JSON 输出
+python wave.py explain sim.vcd --signal ack --at 1310 --format json
+```
+
+**输出示例：**
+```
+事件: tb.dut.ack 在 t=1310 由 0 变为 1
+上下文窗口: 1210 ~ 1410 ns
+
+可能原因（翻转前相关信号变化）：
+  • tb.dut.req 变为 1 (t=1210)
+  • tb.dut.state 变为 WAIT_ACK (t=1240)
+  • tb.dut.ready 变为 1 (t=1300)
+
+相关信号变化（按时间排序）：
+     Time  Signal                                     Prev  →     Curr
+──────────────────────────────────────────────────────────────────────
+    1210  tb.dut.req                                    0  →        1
+    1240  tb.dut.state                               IDLE  →  WAIT_ACK
+    1300  tb.dut.ready                                  0  →        1
+    1310  tb.dut.ack                                    0  →        1
 ```
 
 ---
@@ -293,7 +382,17 @@ end
    python wave.py find sim.vcd --when "rising(rst_n)"
    ```
 
-3. **【必须】在复位释放附近提取上下文**
+3. **使用 peek 快速查看复位释放时刻**
+   ```bash
+   python wave.py peek sim.vcd --time 100 --signals rst_n,state,data_out
+   ```
+
+4. **使用 explain 解释 X 出现原因**
+   ```bash
+   python wave.py explain sim.vcd --signal data_out --at 105 --context 50
+   ```
+
+5. **【必须】在复位释放附近提取上下文**
    ```bash
    python wave.py context sim.vcd \
        --signals rst_n,state,data_out,valid \
