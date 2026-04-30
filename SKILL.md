@@ -47,8 +47,8 @@ compatibility:
 **`scripts/wave.py`** — 唯一入口 CLI，**纯 Python 标准库实现，无需安装任何依赖**。
 
 依赖说明：
-- Python ≥ 3.8
-- 仅使用标准库模块：`re`, `sys`, `fnmatch`, `argparse`, `textwrap`, `pathlib`, `dataclasses`, `typing`, `json`
+- Python ≥ 3.6
+- 仅使用标准库模块：`re`, `sys`, `fnmatch`, `argparse`, `textwrap`, `pathlib`, `typing`, `json`
 - 无需 `pip install` 任何第三方包
 
 ```

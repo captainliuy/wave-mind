@@ -5,8 +5,8 @@ wave.py — RTL 波形 VCD 提取工具（面向大模型分析）
 将 VCD 仿真波形转换为适合大模型阅读的文本格式。
 
 依赖要求：
-  Python ≥ 3.8，仅使用标准库，无需 pip install
-  模块：re, sys, fnmatch, argparse, textwrap, pathlib, dataclasses, typing, json
+  Python ≥ 3.6，仅使用标准库，无需 pip install
+  模块：re, sys, fnmatch, argparse, textwrap, pathlib, typing, json
 
 子命令：
   list      列出 VCD 中所有信号
@@ -41,8 +41,7 @@ import argparse
 import textwrap
 import os
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Tuple, Dict
 
 # 导入 SQLite 索引模块
 from wave_db import WaveDB
@@ -52,14 +51,17 @@ from wave_db import WaveDB
 # VCD 解析器
 # ══════════════════════════════════════════════════════════════════════════════
 
-@dataclass
 class Signal:
-    id_code: str
-    name: str
-    width: int
-    var_type: str
-    scope: str = ""
-    changes: list = field(default_factory=list)  # [(time, value_str), ...]
+    """VCD 信号"""
+
+    def __init__(self, id_code: str, name: str, width: int, var_type: str,
+                 scope: str = "", changes: Optional[list] = None):
+        self.id_code = id_code
+        self.name = name
+        self.width = width
+        self.var_type = var_type
+        self.scope = scope
+        self.changes = changes if changes is not None else []  # [(time, value_str), ...]
 
     @property
     def full_name(self) -> str:
@@ -132,8 +134,8 @@ class VCDParser:
         self.path = path
         self.timescale = "1ns"
         self.end_time = 0
-        self.signals: dict[str, Signal] = {}    # id_code → Signal
-        self.by_name: dict[str, Signal] = {}    # full_name → Signal
+        self.signals: Dict[str, Signal] = {}    # id_code → Signal
+        self.by_name: Dict[str, Signal] = {}    # full_name → Signal
         self._db: Optional[WaveDB] = None
         self.from_cache = False  # 标记数据来源
         self._pending_vec: Optional[str] = None  # 解析用临时变量
@@ -180,7 +182,7 @@ class VCDParser:
         # ── 解析 header ─────────────────────────
         hdr_end = text.find("$enddefinitions")
         hdr = text[: hdr_end if hdr_end != -1 else len(text)]
-        scope_stack: list[str] = []
+        scope_stack: List[str] = []
         tokens = hdr.split()
         i = 0
         while i < len(tokens):
@@ -223,7 +225,7 @@ class VCDParser:
                 if sig: sig.changes.append((cur_time, self._pending_vec))
                 del self._pending_vec
 
-    def select(self, pattern: str) -> list[Signal]:
+    def select(self, pattern: str) -> List[Signal]:
         """
         按模式选择信号。支持：
           *          → 全部
@@ -292,8 +294,8 @@ def _timescale_unit(ts: str) -> str:
     return m.group(0) if m else "?"
 
 
-def _sample_times(signals: list[Signal], start: int, end: int,
-                  max_cols: int = 80) -> list[int]:
+def _sample_times(signals: List[Signal], start: int, end: int,
+                  max_cols: int = 80) -> List[int]:
     """收集时间点并降采样到 max_cols 列。"""
     times = sorted({t for s in signals for t, _ in s.changes if start <= t <= end})
     if len(times) > max_cols:
@@ -407,7 +409,7 @@ def cmd_trace(vcd: VCDParser, args):
     unit = _timescale_unit(vcd.timescale)
 
     # 收集所有跳变
-    events: list[tuple[int, str, str, str]] = []  # (time, sig_name, prev, curr)
+    events: List[Tuple[int, str, str, str]] = []  # (time, sig_name, prev, curr)
     for s in sigs:
         for t, pv, cv in s.transitions_in(start, end):
             events.append((t, s.full_name, pv if pv else "?", cv))

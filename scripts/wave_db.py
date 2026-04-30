@@ -259,7 +259,7 @@ class WaveDB:
         )
         return cursor.fetchall()
 
-    def query_toggle_count(self, id_code: str, start: int = 0, end: int = None) -> int:
+    def query_toggle_count(self, id_code: str, start: int = 0, end: Optional[int] = None) -> int:
         """
         计算跳变次数。
         SQL 实现：SELECT COUNT(*) FROM transitions WHERE id_code=? AND time>=? AND time<=?
