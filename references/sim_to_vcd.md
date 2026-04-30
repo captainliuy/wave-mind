@@ -4,33 +4,57 @@
 
 ---
 
-## Questa / ModelSim — `wlf2vcd`
+## Questa / ModelSim — `wlfman filter` + `wlf2vcd`
+
+`wlf2vcd` **仅负责格式转换**，不支持时间截取和信号过滤。
+需先用 `wlfman filter` 裁剪 WLF，再转为 VCD。
+
+### 完整流程（裁剪 + 转换）
 
 ```bash
-# 完整导出
-wlf2vcd -o sim.vcd vsim.wlf
+# 1. 截取时间段 + 过滤信号，生成裁剪后的 WLF
+wlfman filter vsim.wlf \
+    -begin 1000 -end 5000 \
+    -r tb/dut \
+    -o trim.wlf
 
-# 截取时间段（单位跟随 WLF 内部 timescale，如 ns）
-wlf2vcd -start 1000 -end 5000 -o trim.vcd vsim.wlf
-
-# 仅导出指定信号（按层次路径）
-wlf2vcd -signal tb/dut/valid -signal tb/dut/data -o sig.vcd vsim.wlf
-
-# 组合使用
-wlf2vcd -start 500 -end 2000 -signal tb/dut/valid -o out.vcd vsim.wlf
+# 2. 将裁剪后的 WLF 转为 VCD
+wlf2vcd -o sim.vcd trim.wlf
 ```
 
-**Tcl 方式**（在 vsim 控制台或脚本中）：
+### 完整导出（不裁剪）
 
-```tcl
-# 仿真前配置 VCD dump
-vcd file sim.vcd
-vcd add -r /tb/*          ;# 递归添加所有信号
-# 或指定信号
-vcd add /tb/dut/clk /tb/dut/valid /tb/dut/data
+```bash
+wlf2vcd -o sim.vcd vsim.wlf
+```
 
-run 10us                   ;# 运行仿真
-vcd flush                  ;# 刷新缓冲
+### wlfman filter 参数速查
+
+| 参数 | 说明 |
+|------|------|
+| `-begin <time>` | 起始时间（默认从文件开头） |
+| `-end <time>` | 结束时间 |
+| `-s <symbol>` | 包含指定信号（如 `tb/dut/valid`） |
+| `-r <object>` | 递归包含指定层次下的所有信号 |
+| `-f <list_file>` | 指定信号列表文件（由 `wlfman items` 生成） |
+| `-t <resolution>` | 输出 WLF 时间分辨率（默认同源文件） |
+| `-o <outwlffile>` | **必需**，输出 WLF 文件名 |
+| `<sourcewlffile>` | 源 WLF 文件 |
+
+**信号过滤示例：**
+
+```bash
+# 仅导出特定信号
+wlfman filter vsim.wlf \
+    -begin 1000 -end 5000 \
+    -s tb/dut/clk -s tb/dut/valid -s tb/dut/data \
+    -o trim.wlf
+
+# 递归导出某层次下所有信号
+wlfman filter vsim.wlf \
+    -begin 1000 -end 5000 \
+    -r tb/dut/axi_if \
+    -o trim.wlf
 ```
 
 ---
@@ -165,7 +189,7 @@ endmodule
 
 | 仿真器      | 推荐方式              | 时间段截取                  |
 |------------|----------------------|-----------------------------|
-| Questa     | `wlf2vcd`            | `-start` / `-end`           |
+| Questa     | `wlfman filter` + `wlf2vcd` | `wlfman filter -begin/-end` |
 | VCS        | `vpd2vcd`            | `-s` / `-e`                 |
 | Xcelium    | `simvision -batch`   | `-start` / `-end` in Tcl    |
 | Icarus     | `$dumpfile` + `$dumpon/off` | testbench 逻辑控制  |

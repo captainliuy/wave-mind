@@ -312,9 +312,9 @@ python3 wave.py context sim.vcd --signals "*" > wave_context.txt
 
 > 详细命令参见 `references/sim_to_vcd.md`
 
-| 仿真器     | 导出命令                                          | 时间段截取参数        |
+| 仿真器     | 导出命令                                          | 时间段截取方法        |
 |-----------|--------------------------------------------------|--------------------|
-| Questa    | `wlf2vcd -o sim.vcd vsim.wlf`                   | `-start T -end T`  |
+| Questa    | `wlfman filter` + `wlf2vcd`                     | `wlfman filter -begin/-end` |
 | VCS       | `vpd2vcd dump.vpd sim.vcd`                       | `-s T -e T`        |
 | Xcelium   | `simvision -batch -input convert.tcl`            | Tcl 中 `-start/-end` |
 | Icarus    | `$dumpfile` + `$dumpon` / `$dumpoff`             | testbench 逻辑控制  |
@@ -344,7 +344,9 @@ end
 
 1. **【必须】从仿真器导出 VCD**
    ```bash
-   wlf2vcd -start 0 -end 10000 -o axi.vcd vsim.wlf
+   # Questa/ModelSim：先用 wlfman filter 裁剪，再转 VCD
+   wlfman filter vsim.wlf -begin 0 -end 10000 -o axi.wlf
+   wlf2vcd -o axi.vcd axi.wlf
    ```
    跳过此步将无法进行任何波形分析。
 
