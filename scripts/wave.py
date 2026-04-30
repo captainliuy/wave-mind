@@ -4,6 +4,10 @@ wave.py — RTL 波形 VCD 提取工具（面向大模型分析）
 =========================================================
 将 VCD 仿真波形转换为适合大模型阅读的文本格式。
 
+依赖要求：
+  Python ≥ 3.8，仅使用标准库，无需 pip install
+  模块：re, sys, fnmatch, argparse, textwrap, pathlib, dataclasses, typing, json
+
 子命令：
   list      列出 VCD 中所有信号
   peek      查询某一时刻的信号值（单时刻快照）
@@ -13,6 +17,10 @@ wave.py — RTL 波形 VCD 提取工具（面向大模型分析）
   explain   解释信号翻转的上下文（相关信号变化）
   summary   信号统计报告（含异常检测）
   context   生成完整 LLM 分析上下文（推荐入口）
+
+缓存机制：
+  自动在 VCD 同目录生成 .wdb 索引文件
+  索引不存在或过期时自动重建（类似 Makefile 规则）
 
 快速上手：
   python wave.py list     sim.vcd
@@ -30,9 +38,13 @@ import sys
 import fnmatch
 import argparse
 import textwrap
+import os
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+
+# 导入 SQLite 索引模块
+from wave_db import WaveDB
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -106,15 +118,60 @@ class Signal:
 
 
 class VCDParser:
+    """
+    VCD 解析器，支持 SQLite 索引缓存（类似 Makefile 规则）。
+
+    自动缓存机制：
+      - 索引不存在 → 解析 VCD，生成 .wdb
+      - 索引过期（mtime < VCD） → 重建索引
+      - 索引有效 → 从 SQLite 加载（跳过解析）
+    """
+
     def __init__(self, path: str):
         self.path = path
         self.timescale = "1ns"
         self.end_time = 0
         self.signals: dict[str, Signal] = {}    # id_code → Signal
         self.by_name: dict[str, Signal] = {}    # full_name → Signal
-        self._parse()
+        self._db: Optional[WaveDB] = None
+        self.from_cache = False  # 标记数据来源
 
-    def _parse(self):
+        self._db = WaveDB(path)
+        if not self._db.needs_rebuild():
+            # 索引有效，从 SQLite 加载
+            if self._db.load():
+                self._load_from_db()
+                self.from_cache = True
+                print(f"[wave] 从缓存加载 {path} (.wdb)", file=sys.stderr)
+                return
+
+        # 无有效索引，解析 VCD 文件并生成索引
+        print(f"[wave] 正在解析 {path} ...", file=sys.stderr)
+        self._parse()
+        self._db.build_from_vcd(self)
+
+    def _load_from_db(self) -> None:
+        """从 SQLite 索引加载信号数据"""
+        meta = self._db.get_meta()
+        self.timescale = meta.get("timescale", "1ns")
+        self.end_time = int(meta.get("end_time", 0))
+
+        # 加载信号信息
+        sig_info = self._db.get_signals()
+        for id_code, info in sig_info.items():
+            sig = Signal(
+                id_code=id_code,
+                name=info["name"],
+                width=info["width"],
+                var_type=info["var_type"],
+                scope=info["scope"],
+            )
+            # 从数据库加载跳变数据
+            sig.changes = self._db.query_all_transitions(id_code)
+            self.signals[id_code] = sig
+            self.by_name[sig.full_name] = sig
+
+    def _parse(self) -> None:
         with open(self.path, "r", errors="replace") as f:
             text = f.read()
 
@@ -787,7 +844,8 @@ def main():
         print(f"错误：文件不存在 — {args.vcd}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[wave] 正在解析 {vcd_path} ...", file=sys.stderr)
+    # 加载 VCD（自动判断是否使用缓存）
+    # 类似 Makefile 规则：索引不存在或过期时自动重建
     vcd = VCDParser(str(vcd_path))
     print(f"[wave] 共 {len(vcd.signals)} 个信号，"
           f"仿真时长 {vcd.end_time} ({vcd.timescale})\n", file=sys.stderr)
