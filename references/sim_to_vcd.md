@@ -170,4 +170,4 @@ endmodule
 | Xcelium    | `simvision -batch`   | `-start` / `-end` in Tcl    |
 | Icarus     | `$dumpfile` + `$dumpon/off` | testbench 逻辑控制  |
 | Verilator  | `VerilatedVcdC`      | C++ 循环条件控制             |
-| 任意格式   | GTKWave `fst2vcd`    | 转换后用 `wave` 截取 |
+| 任意格式   | GTKWave `fst2vcd`    | 转换后用 `python3 wave.py` 截取 |
