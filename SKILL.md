@@ -15,7 +15,15 @@ compatibility:
 
 > ⚠️ **只要涉及 VCD/波形/仿真调试，就必须使用本技能，不得跳过工具调用步骤。**
 
+**格式要求**：`wave.py` 仅支持 VCD 格式。如果用户提供 `.fst`/`.wlf`/`.fsdb`/`.shm` 等文件，
+必须先转换为 VCD（见 `references/sim_to_vcd.md`）。
+
+**缓存机制**：首次使用时自动生成 `.wdb` 索引文件（SQLite 格式），后续调用速度提升 4x+。
+索引在 VCD 文件更新时自动重建，无需手动管理。
+
 将仿真 VCD 波形转换为大模型可读的结构化文本，辅助 RTL 调试与分析。
+
+> 💡 **不知道用什么命令？先用 `context`**，它把分析所需的所有信息都准备好了。
 
 ## 子命令选择指南（必读）
 
@@ -44,7 +52,7 @@ compatibility:
 - 无需 `pip install` 任何第三方包
 
 ```
-用法：python wave.py <子命令> <vcd文件> [选项]
+用法：python3 wave.py <子命令> <vcd文件> [选项]
 ```
 
 ---
@@ -55,17 +63,17 @@ compatibility:
 
 ```bash
 # 列出所有信号
-python wave.py list sim.vcd
+python3 wave.py list sim.vcd
 
 # 按跳变次数降序排列（快速找到活跃信号）
-python wave.py list sim.vcd --sort toggle
+python3 wave.py list sim.vcd --sort toggle
 
 # 过滤名称（通配符）
-python wave.py list sim.vcd --filter "axi*"
-python wave.py list sim.vcd --filter "/valid|ready/"   # 正则
+python3 wave.py list sim.vcd --filter "axi*"
+python3 wave.py list sim.vcd --filter "/valid|ready/"   # 正则
 
 # JSON 输出（适合 Agent 解析）
-python wave.py list sim.vcd --format json
+python3 wave.py list sim.vcd --format json
 ```
 
 ---
@@ -76,13 +84,13 @@ python wave.py list sim.vcd --format json
 
 ```bash
 # 查询 t=1250 时刻的信号值
-python wave.py peek sim.vcd --time 1250 --signals clk,rst_n,valid,data
+python3 wave.py peek sim.vcd --time 1250 --signals clk,rst_n,valid,data
 
 # 查询某一时刻所有信号
-python wave.py peek sim.vcd --time 500 --signals "*"
+python3 wave.py peek sim.vcd --time 500 --signals "*"
 
 # JSON 输出
-python wave.py peek sim.vcd --time 1250 --signals valid,data --format json
+python3 wave.py peek sim.vcd --time 1250 --signals valid,data --format json
 ```
 
 **输出示例：**
@@ -119,19 +127,19 @@ tb.dut.data                                  A3B2h
 
 ```bash
 # 指定信号，全时间范围
-python wave.py dump sim.vcd --signals clk,rst_n,valid,data
+python3 wave.py dump sim.vcd --signals clk,rst_n,valid,data
 
 # 截取时间段（单位与 VCD timescale 一致）
-python wave.py dump sim.vcd --signals valid,data --start 1000 --end 5000
+python3 wave.py dump sim.vcd --signals valid,data --start 1000 --end 5000
 
 # 控制采样密度（--max-cols 越大越详细，默认 80 列）
-python wave.py dump sim.vcd --signals "*" --max-cols 40
+python3 wave.py dump sim.vcd --signals "*" --max-cols 40
 
 # 通配符选择信号组
-python wave.py dump sim.vcd --signals "axi_*"
+python3 wave.py dump sim.vcd --signals "axi_*"
 
 # 正则选择
-python wave.py dump sim.vcd --signals "/^tb\.dut\.(valid|data|ack)$/"
+python3 wave.py dump sim.vcd --signals "/^tb\.dut\.(valid|data|ack)$/"
 ```
 
 **输出示例：**
@@ -152,10 +160,10 @@ python wave.py dump sim.vcd --signals "/^tb\.dut\.(valid|data|ack)$/"
 只输出有变化的时刻，比 `dump` 更适合分析协议行为和边沿事件。
 
 ```bash
-python wave.py trace sim.vcd --signals valid,ready,data
+python3 wave.py trace sim.vcd --signals valid,ready,data
 
 # 指定时间窗口
-python wave.py trace sim.vcd --signals "axi_*" --start 500 --end 2000
+python3 wave.py trace sim.vcd --signals "axi_*" --start 500 --end 2000
 ```
 
 **输出示例：**
@@ -177,22 +185,22 @@ python wave.py trace sim.vcd --signals "axi_*" --start 500 --end 2000
 
 ```bash
 # 找到握手成功（valid & ready 同时为高）的时刻
-python wave.py find sim.vcd --when "valid == 1 and ready == 1"
+python3 wave.py find sim.vcd --when "valid == 1 and ready == 1"
 
 # 找到 data 不为零的时刻
-python wave.py find sim.vcd --when "data != 0"
+python3 wave.py find sim.vcd --when "data != 0"
 
 # 找到上升沿
-python wave.py find sim.vcd --when "rising(valid)"
+python3 wave.py find sim.vcd --when "rising(valid)"
 
 # 找到下降沿
-python wave.py find sim.vcd --when "falling(rst_n)"
+python3 wave.py find sim.vcd --when "falling(rst_n)"
 
 # 时间范围内搜索
-python wave.py find sim.vcd --when "error == 1" --start 0 --end 10000
+python3 wave.py find sim.vcd --when "error == 1" --start 0 --end 10000
 
 # 显示更多结果
-python wave.py find sim.vcd --when "state != 0" --limit 50
+python3 wave.py find sim.vcd --when "state != 0" --limit 50
 ```
 
 **输出示例：**
@@ -213,13 +221,13 @@ python wave.py find sim.vcd --when "state != 0" --limit 50
 
 ```bash
 # 解释 ack 在 t=1310 翻转的原因
-python wave.py explain sim.vcd --signal ack --at 1310 --context 100
+python3 wave.py explain sim.vcd --signal ack --at 1310 --context 100
 
 # 指定更大的上下文窗口
-python wave.py explain sim.vcd --signal valid --at 500 --context 200
+python3 wave.py explain sim.vcd --signal valid --at 500 --context 200
 
 # JSON 输出
-python wave.py explain sim.vcd --signal ack --at 1310 --format json
+python3 wave.py explain sim.vcd --signal ack --at 1310 --format json
 ```
 
 **输出示例：**
@@ -252,13 +260,13 @@ python wave.py explain sim.vcd --signal ack --at 1310 --format json
 - `HI-Z` — 出现 Z 值（高阻）
 
 ```bash
-python wave.py summary sim.vcd --signals "*"
+python3 wave.py summary sim.vcd --signals "*"
 
 # 指定时间窗口
-python wave.py summary sim.vcd --signals "*" --start 100 --end 5000
+python3 wave.py summary sim.vcd --signals "*" --start 100 --end 5000
 
 # 调整毛刺判定阈值（脉宽 < 3 视为毛刺）
-python wave.py summary sim.vcd --signals data,valid --glitch-width 3
+python3 wave.py summary sim.vcd --signals data,valid --glitch-width 3
 ```
 
 ---
@@ -269,20 +277,20 @@ python wave.py summary sim.vcd --signals data,valid --glitch-width 3
 
 ```bash
 # 基本用法
-python wave.py context sim.vcd --signals valid,ready,data
+python3 wave.py context sim.vcd --signals valid,ready,data
 
 # 带时间窗口 + 附加问题
-python wave.py context sim.vcd \
+python3 wave.py context sim.vcd \
     --signals "axi_*" \
     --start 1000 --end 5000 \
     --question "为什么 axi_valid 在 reset 释放后延迟了 5 个周期才拉高？"
 
 # 管道传给大模型（Claude Code 环境）
-python wave.py context sim.vcd --signals valid,data --start 0 --end 2000 \
+python3 wave.py context sim.vcd --signals valid,data --start 0 --end 2000 \
     | claude --print "请分析这段波形的握手行为"
 
 # 保存到文件供粘贴
-python wave.py context sim.vcd --signals "*" > wave_context.txt
+python3 wave.py context sim.vcd --signals "*" > wave_context.txt
 ```
 
 ---
@@ -342,17 +350,17 @@ end
 
 2. **浏览信号，找到相关信号名**
    ```bash
-   python wave.py list axi.vcd --filter "*tvalid*,*tready*,*tdata*"
+   python3 wave.py list axi.vcd --filter "*tvalid*,*tready*,*tdata*"
    ```
 
 3. **搜索握手失败的位置**
    ```bash
-   python wave.py find axi.vcd --when "tvalid == 1 and tready == 0" --start 0 --end 10000
+   python3 wave.py find axi.vcd --when "tvalid == 1 and tready == 0" --start 0 --end 10000
    ```
 
 4. **【必须】在问题区域提取完整上下文**
    ```bash
-   python wave.py context axi.vcd \
+   python3 wave.py context axi.vcd \
        --signals tvalid,tready,tdata,tlast \
        --start 3200 --end 3800 \
        --question "tvalid 在 t=3500 后为何持续拉低？是否违反了 AXI-Stream 规范？" \
@@ -374,27 +382,27 @@ end
 
 1. **【必须】直接 summary 检测异常**
    ```bash
-   python wave.py summary sim.vcd --signals "*" --start 0 --end 500
+   python3 wave.py summary sim.vcd --signals "*" --start 0 --end 500
    ```
 
 2. **锁定 X 传播时间点**
    ```bash
-   python wave.py find sim.vcd --when "rising(rst_n)"
+   python3 wave.py find sim.vcd --when "rising(rst_n)"
    ```
 
 3. **使用 peek 快速查看复位释放时刻**
    ```bash
-   python wave.py peek sim.vcd --time 100 --signals rst_n,state,data_out
+   python3 wave.py peek sim.vcd --time 100 --signals rst_n,state,data_out
    ```
 
 4. **使用 explain 解释 X 出现原因**
    ```bash
-   python wave.py explain sim.vcd --signal data_out --at 105 --context 50
+   python3 wave.py explain sim.vcd --signal data_out --at 105 --context 50
    ```
 
 5. **【必须】在复位释放附近提取上下文**
    ```bash
-   python wave.py context sim.vcd \
+   python3 wave.py context sim.vcd \
        --signals rst_n,state,data_out,valid \
        --start 95 --end 200 \
        --question "rst_n 释放后 data_out 出现 X，根因是什么？"
@@ -431,7 +439,7 @@ END=${4:-""}
 END_ARG=""
 [ -n "$END" ] && END_ARG="--end $END"
 
-python wave.py context "$VCD" \
+python3 wave.py context "$VCD" \
     --signals "$SIGNALS" \
     --start "$START" $END_ARG \
     --question "请分析这段波形，指出任何异常或潜在问题"

@@ -106,6 +106,7 @@ top->trace(tfp, 99);
 tfp->open("sim.vcd");
 
 // 仿真循环
+uint64_t time = 0;
 while (time < END_TIME) {
     top->eval();
     if (time >= START_TIME)
@@ -119,17 +120,18 @@ tfp->close();
 
 ## GTKWave — 格式互转
 
-GTKWave 附带的命令行工具可在常见格式间互转：
+GTKWave 附带的命令行工具可在常见格式间互转（需安装 GTKWave 附带工具）：
 
 ```bash
 # FST → VCD（Verilator 默认格式，比 VCD 小 10x）
+# 工具位于 GTKWave 安装目录：fst2vcd / lxt2vcd
 fst2vcd sim.fst -o sim.vcd
 
 # LXT2 → VCD
 lxt2vcd sim.lxt2 -o sim.vcd
 
 # VCD 截取时间段（利用 wave.py）
-python wave.py dump full.vcd --start 1000 --end 5000 > trim_context.txt
+python3 wave.py dump full.vcd --start 1000 --end 5000 > trim_context.txt
 ```
 
 ---

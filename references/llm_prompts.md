@@ -134,14 +134,14 @@
 
 ```bash
 # 使用 Simon Willison 的 llm CLI
-wave context sim.vcd --signals valid,ready,data --start 1000 --end 3000 \
+python3 wave.py context sim.vcd --signals valid,ready,data --start 1000 --end 3000 \
   | llm "这个 AXI-Stream 握手是否正确？valid 是否存在过早撤销的问题？"
 
 # 使用 Claude CLI（Claude Code 环境）
-wave context sim.vcd --signals "*" --question "为什么 data_out 在 valid 拉高后还延迟了 3 个周期？" \
+python3 wave.py context sim.vcd --signals "*" --question "为什么 data_out 在 valid 拉高后还延迟了 3 个周期？" \
   | claude --print
 
 # 使用 OpenAI CLI
-wave context sim.vcd --signals rst_n,state,error --start 0 --end 500 \
+python3 wave.py context sim.vcd --signals rst_n,state,error --start 0 --end 500 \
   | openai api chat.completions.create -m gpt-4o --stdin
 ```

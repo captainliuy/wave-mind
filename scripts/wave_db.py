@@ -11,7 +11,6 @@ wave_db.py — VCD 波形 SQLite 索引管理器
 
 import sqlite3
 import os
-from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 
 
@@ -112,12 +111,14 @@ class WaveDB:
                        (vcd_parser.end_time,))
         cursor.execute("INSERT INTO meta VALUES ('vcd_path', ?)", (self.vcd_path,))
 
-        # ── 写入信号信息 ───────────────────────────
-        for sig in vcd_parser.signals.values():
-            cursor.execute(
-                "INSERT INTO signals VALUES (?, ?, ?, ?, ?)",
+        # ── 写入信号信息（批量插入） ──────────────────
+        cursor.executemany(
+            "INSERT INTO signals VALUES (?, ?, ?, ?, ?)",
+            [
                 (sig.id_code, sig.name, sig.scope, sig.width, sig.var_type)
-            )
+                for sig in vcd_parser.signals.values()
+            ]
+        )
 
         # ── 写入跳变事件 ───────────────────────────
         # 批量插入以提高性能

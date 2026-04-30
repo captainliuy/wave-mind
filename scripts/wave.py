@@ -23,18 +23,19 @@ wave.py — RTL 波形 VCD 提取工具（面向大模型分析）
   索引不存在或过期时自动重建（类似 Makefile 规则）
 
 快速上手：
-  python wave.py list     sim.vcd
-  python wave.py peek     sim.vcd --time 1250 --signals clk,rst_n,valid,data
-  python wave.py dump     sim.vcd --signals clk,rst_n,valid,data --start 0 --end 1000
-  python wave.py trace    sim.vcd --signals valid,ready
-  python wave.py find     sim.vcd --when "valid==1 and ready==1"
-  python wave.py explain  sim.vcd --signal ack --at 1310 --context 100
-  python wave.py summary  sim.vcd --signals "*"
-  python wave.py context  sim.vcd --signals valid,data,ack --start 500 --end 2000
+  python3 wave.py list     sim.vcd
+  python3 wave.py peek     sim.vcd --time 1250 --signals clk,rst_n,valid,data
+  python3 wave.py dump     sim.vcd --signals clk,rst_n,valid,data --start 0 --end 1000
+  python3 wave.py trace    sim.vcd --signals valid,ready
+  python3 wave.py find     sim.vcd --when "valid==1 and ready==1"
+  python3 wave.py explain  sim.vcd --signal ack --at 1310 --context 100
+  python3 wave.py summary  sim.vcd --signals "*"
+  python3 wave.py context  sim.vcd --signals valid,data,ack --start 500 --end 2000
 """
 
 import re
 import sys
+import json
 import fnmatch
 import argparse
 import textwrap
@@ -135,6 +136,7 @@ class VCDParser:
         self.by_name: dict[str, Signal] = {}    # full_name → Signal
         self._db: Optional[WaveDB] = None
         self.from_cache = False  # 标记数据来源
+        self._pending_vec: Optional[str] = None  # 解析用临时变量
 
         self._db = WaveDB(path)
         if not self._db.needs_rebuild():
@@ -262,8 +264,6 @@ class VCDParser:
 # ══════════════════════════════════════════════════════════════════════════════
 # JSON 输出支持
 # ══════════════════════════════════════════════════════════════════════════════
-
-import json
 
 def output_json(data: dict, use_json: bool):
     """根据 --format 参数选择输出格式。"""
@@ -450,14 +450,6 @@ def cmd_find(vcd: VCDParser, args):
     # 收集所有时间点
     all_times = sorted({t for s in vcd.signals.values()
                         for t, _ in s.changes if start <= t <= end})
-
-    # 替换 rising/falling 语法
-    def check_rising(sig_name: str, t: int) -> bool:
-        s = sigs.get(sig_name)
-        if not s: return False
-        transitions = s.transitions_in(max(0, t - 1), t)
-        return any(pv in ("0", None) and cv == "1" for _, pv, cv in transitions if cv_t == t
-                   for cv_t, _, cv in [(tr[0], tr[1], tr[2]) for tr in transitions])
 
     results = []
     for t in all_times:
