@@ -6,7 +6,7 @@ wave_db.py — VCD 波形 SQLite 索引管理器
 - 基于 mtime 的缓存有效性检查
 - SQL 查询优化（value_at、transitions_in 等）
 
-依赖：Python ≥ 3.8，仅使用标准库 sqlite3
+依赖：Python ≥ 3.6，仅使用标准库 sqlite3
 """
 
 import sqlite3

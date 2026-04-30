@@ -7,7 +7,7 @@ description: >
   只要用户提到 VCD、波形、仿真调试、waveform、FST、WLF、FSDB、信号跳变、
   时序违例、X传播、CDC、AXI、握手协议分析，立即使用本技能。
 compatibility:
-  tools: bash, python3 (≥3.8, 标准库，无需额外安装)
+  tools: bash, python3 (≥3.6, 标准库，无需额外安装)
   environments: Claude Code, Cursor, Codex, 任何支持 bash 的 AI 编程环境
 ---
 
